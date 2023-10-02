@@ -27,12 +27,12 @@ namespace MonkeyCache.SQLite
 
 		public bool AutoExpire { get; set; }
 
-		static Barrel instance = null;
+		static readonly Lazy<Barrel> instance = new Lazy<Barrel>(() => new Barrel());
 
 		/// <summary>
 		/// Gets the instance of the Barrel
 		/// </summary>
-		public static IBarrel Current => (instance ?? (instance = new Barrel()));
+		public static IBarrel Current => instance.Value;
 
 		public static IBarrel Create(string cacheDirectory)
 			=> new Barrel(cacheDirectory);
@@ -46,11 +46,13 @@ namespace MonkeyCache.SQLite
 				Directory.CreateDirectory(directory);
 			}
 
-			db = new SQLiteConnection(path, SQLiteOpenFlags.ReadWrite | SQLiteOpenFlags.Create | SQLiteOpenFlags.FullMutex);
+			db = new SQLiteConnection(path,
+				SQLiteOpenFlags.ReadWrite | SQLiteOpenFlags.Create | SQLiteOpenFlags.FullMutex);
 			db.CreateTable<Banana>();
 		}
 
 		#region Exist and Expiration Methods
+
 		/// <summary>
 		/// Checks to see if the key exists in the Barrel.
 		/// </summary>
@@ -79,7 +81,7 @@ namespace MonkeyCache.SQLite
 		{
 			if (string.IsNullOrWhiteSpace(key))
 				throw new ArgumentException("Key can not be null or empty.", nameof(key));
-			
+
 			Banana ent;
 			lock (dblock)
 			{
@@ -95,6 +97,7 @@ namespace MonkeyCache.SQLite
 		#endregion
 
 		#region Get Methods
+
 		/// <summary>
 		/// Gets all the keys that are saved in the cache
 		/// </summary>
@@ -137,7 +140,9 @@ namespace MonkeyCache.SQLite
 			Banana ent;
 			lock (dblock)
 			{
-				ent = db.Query<Banana>($"SELECT {nameof(ent.Contents)} FROM {nameof(Banana)} WHERE {nameof(ent.Id)} = ?", key).FirstOrDefault();
+				ent = db.Query<Banana>(
+						$"SELECT {nameof(ent.Contents)} FROM {nameof(Banana)} WHERE {nameof(ent.Id)} = ?", key)
+					.FirstOrDefault();
 			}
 
 			var result = default(T);
@@ -155,11 +160,13 @@ namespace MonkeyCache.SQLite
 		}
 
 		/// <inheritdoc/>
-		[RequiresUnreferencedCode("JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo, or make sure all of the required types are preserved.")]
+		[RequiresUnreferencedCode(
+			"JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo, or make sure all of the required types are preserved.")]
 		public T Get<T>(string key, JsonSerializerOptions options = null) =>
 			Get(key, contents => JsonDeserialize<T>(contents, options));
 
-		[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Workaround https://github.com/dotnet/linker/issues/2001")]
+		[UnconditionalSuppressMessage("Trimming", "IL2026",
+			Justification = "Workaround https://github.com/dotnet/linker/issues/2001")]
 		static T JsonDeserialize<T>(string contents, JsonSerializerOptions options) =>
 			JsonSerializer.Deserialize<T>(contents, options);
 
@@ -180,7 +187,8 @@ namespace MonkeyCache.SQLite
 			Banana ent;
 			lock (dblock)
 			{
-				ent = db.Query<Banana>($"SELECT {nameof(ent.ETag)} FROM {nameof(Banana)} WHERE {nameof(ent.Id)} = ?", key).FirstOrDefault();
+				ent = db.Query<Banana>($"SELECT {nameof(ent.ETag)} FROM {nameof(Banana)} WHERE {nameof(ent.Id)} = ?",
+					key).FirstOrDefault();
 			}
 
 			if (ent == null)
@@ -199,7 +207,9 @@ namespace MonkeyCache.SQLite
 			Banana ent;
 			lock (dblock)
 			{
-				ent = db.Query<Banana>($"SELECT {nameof(ent.ExpirationDate)} FROM {nameof(Banana)} WHERE {nameof(ent.Id)} = ?", key).FirstOrDefault();
+				ent = db.Query<Banana>(
+						$"SELECT {nameof(ent.ExpirationDate)} FROM {nameof(Banana)} WHERE {nameof(ent.Id)} = ?", key)
+					.FirstOrDefault();
 			}
 
 			if (ent == null)
@@ -216,10 +226,7 @@ namespace MonkeyCache.SQLite
 		{
 			var ent = new Banana
 			{
-				Id = key,
-				ExpirationDate = BarrelUtils.GetExpiration(expireIn),
-				ETag = eTag,
-				Contents = data
+				Id = key, ExpirationDate = BarrelUtils.GetExpiration(expireIn), ETag = eTag, Contents = data
 			};
 
 			lock (dblock)
@@ -250,21 +257,25 @@ namespace MonkeyCache.SQLite
 		}
 
 		/// <inheritdoc/>
-		[RequiresUnreferencedCode("JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo, or make sure all of the required types are preserved.")]
-		public void Add<T>(string key, T data, TimeSpan expireIn, JsonSerializerOptions options = null, string eTag = null) =>
+		[RequiresUnreferencedCode(
+			"JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo, or make sure all of the required types are preserved.")]
+		public void Add<T>(string key, T data, TimeSpan expireIn, JsonSerializerOptions options = null,
+			string eTag = null) =>
 			Add(key, data, expireIn, eTag, data => JsonSerialize(data, options));
 
-		[UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Workaround https://github.com/dotnet/linker/issues/2001")]
-		static string JsonSerialize<T>(T data, JsonSerializerOptions options) => JsonSerializer.Serialize(data, options);
+		[UnconditionalSuppressMessage("Trimming", "IL2026",
+			Justification = "Workaround https://github.com/dotnet/linker/issues/2001")]
+		static string JsonSerialize<T>(T data, JsonSerializerOptions options) =>
+			JsonSerializer.Serialize(data, options);
 
 		/// <inheritdoc/>
 		public void Add<T>(string key, T data, TimeSpan expireIn, JsonTypeInfo<T> jsonTypeInfo, string eTag = null) =>
 			Add(key, data, expireIn, eTag, data => JsonSerializer.Serialize(data, jsonTypeInfo));
 
-
 		#endregion
 
 		#region Empty Methods
+
 		/// <summary>
 		/// Empties all expired entries that are in the Barrel.
 		/// Throws an exception if any deletions fail and rolls back changes.
@@ -280,7 +291,6 @@ namespace MonkeyCache.SQLite
 						db.Delete<Banana>(k.Id);
 				});
 			}
-
 		}
 
 		/// <summary>
@@ -293,7 +303,6 @@ namespace MonkeyCache.SQLite
 			{
 				db.DeleteAll<Banana>();
 			}
-
 		}
 
 		/// <summary>
